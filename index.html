@@ -102,8 +102,15 @@
       border: 1px solid var(--cardBorder);
       overflow: hidden;
       transform-origin: center;
+      transform: rotate(var(--note-rotate, 0deg)) scale(1);
       cursor: default;
       user-select: none;
+      transition: transform 160ms ease, box-shadow 160ms ease;
+    }
+
+    .note.is-hovered {
+      transform: rotate(var(--note-rotate, 0deg)) scale(1.06);
+      box-shadow: 0 24px 70px rgba(0,0,0,0.55);
     }
 
     /* 종이 질감 느낌(아주 약하게) */
@@ -311,6 +318,7 @@
 
     let scrollOffsetY = 0;
     let lastAnimationTimestamp = performance.now();
+    let hoverPauseCount = 0;
 
     /** @type {Array<{
      *   id: string,
@@ -464,7 +472,7 @@
       noteElement.className = "note";
       noteElement.dataset.noteId = note.id;
       noteElement.style.background = note.backgroundColorCss;
-      noteElement.style.transform = `rotate(${note.rotationDegrees}deg)`;
+      noteElement.style.setProperty("--note-rotate", `${note.rotationDegrees}deg`);
 
       const noteTitleElement = document.createElement("div");
       noteTitleElement.className = "noteTitle";
@@ -533,6 +541,18 @@
       noteElement.addEventListener("pointercancel", () => {
         if (longPressTimerId) window.clearTimeout(longPressTimerId);
         longPressTimerId = null;
+      });
+
+      noteElement.addEventListener("pointerenter", (event) => {
+        if (event.pointerType !== "mouse") return;
+        noteElement.classList.add("is-hovered");
+        hoverPauseCount += 1;
+      });
+
+      noteElement.addEventListener("pointerleave", (event) => {
+        if (event.pointerType !== "mouse") return;
+        noteElement.classList.remove("is-hovered");
+        hoverPauseCount = Math.max(0, hoverPauseCount - 1);
       });
 
       return noteElement;
@@ -647,7 +667,7 @@
       const deltaMilliseconds = timestamp - lastAnimationTimestamp;
       lastAnimationTimestamp = timestamp;
 
-      if (isMotionEnabled) {
+      if (isMotionEnabled && hoverPauseCount === 0) {
         const deltaSeconds = deltaMilliseconds / 1000;
         scrollOffsetY = wrapNumber(
           scrollOffsetY + (scrollDirection * scrollSpeedPixelsPerSecond * deltaSeconds),
