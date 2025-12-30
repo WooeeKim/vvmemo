@@ -139,27 +139,20 @@
     }
 
     .noteTitleActions {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-
-    .noteActionButton {
-      appearance: none;
-      border: 1px solid rgba(15,16,20,0.15);
-      background: rgba(255,255,255,0.55);
-      color: rgba(15,16,20,0.78);
-      padding: 2px 6px;
-      border-radius: 8px;
+      position: absolute;
+      top: -18px;
+      right: 12px;
       font-size: 11px;
-      line-height: 1.2;
-      cursor: pointer;
+      color: rgba(255,255,255,0.96);
+      letter-spacing: 0.2px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 140ms ease;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.6);
     }
 
-    .noteActionButton.danger {
-      border-color: rgba(180,60,60,0.30);
-      background: rgba(255,180,180,0.55);
-      color: rgba(110,20,20,0.9);
+    .note.is-hovered .noteTitleActions {
+      opacity: 1;
     }
 
     .noteBody {
@@ -488,19 +481,7 @@
 
       const titleRight = document.createElement("div");
       titleRight.className = "noteTitleActions";
-
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "noteActionButton";
-      editButton.textContent = "편집";
-
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "noteActionButton danger";
-      deleteButton.textContent = "삭제";
-
-      titleRight.appendChild(editButton);
-      titleRight.appendChild(deleteButton);
+      titleRight.textContent = "편집 · 삭제";
 
       noteTitleElement.appendChild(titleLeft);
       noteTitleElement.appendChild(titleRight);
@@ -516,16 +497,6 @@
       noteElement.appendChild(noteTitleElement);
       noteElement.appendChild(noteBodyElement);
       noteElement.appendChild(noteTimestampElement);
-
-      editButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openEditor(note.id);
-      });
-
-      deleteButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        deleteNoteById(note.id);
-      });
 
       // 더블클릭 편집
       noteElement.addEventListener("dblclick", (event) => {
