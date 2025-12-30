@@ -412,6 +412,7 @@
     /**
      * 클릭/터치 위치에 따른 "아름다운" 단색 생성
      * - x는 hue(색상) 중심, y는 lightness(명도) 중심으로 설계
+     * - y는 월드 높이 기준으로 주기화해 루프에서도 자연스럽게 이어짐
      * - noise로 아주 약한 유기적 변화
      */
     function colorFromViewportPosition(viewportX, viewportY) {
@@ -419,16 +420,19 @@
       const viewportHeight = viewportElement.clientHeight;
 
       const normalizedX = clampNumber(viewportX / Math.max(viewportWidth, 1), 0, 1);
+      const worldY = wrapNumber(viewportY + scrollOffsetY, worldHeightPixels);
+      const normalizedWorldY = worldY / Math.max(worldHeightPixels, 1);
       const normalizedY = clampNumber(viewportY / Math.max(viewportHeight, 1), 0, 1);
 
-      const noise = smoothFieldNoise(normalizedX, normalizedY);
+      const noise = smoothFieldNoise(normalizedX, normalizedWorldY);
+      const loopWave = Math.sin(Math.PI * 2 * normalizedWorldY);
 
       // hue: 좌->우로 흐르되, y에 따라 대각선 느낌으로 조금 틀어줌
-      const baseHueDegrees = 210 + 150 * normalizedX + 55 * (normalizedY - 0.5);
+      const baseHueDegrees = 210 + 150 * normalizedX + 35 * loopWave;
       const hueDegrees = wrapNumber(baseHueDegrees + 10 * noise, 360);
 
-      // lightness: 위쪽은 밝고 아래로 갈수록 살짝 어두워지게
-      const lightness = clampNumber(0.86 - 0.30 * normalizedY + 0.03 * noise, 0.58, 0.92);
+      // lightness: 세로 루프에서도 부드럽게 이어지는 주기 함수
+      const lightness = clampNumber(0.76 + 0.12 * loopWave + 0.02 * noise, 0.58, 0.90);
 
       // chroma: 중앙부가 조금 더 선명
       const distanceFromCenterY = Math.abs(normalizedY - 0.5) * 2; // 0..1
