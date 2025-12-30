@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Infinite Memo Flow</title>
+  <style>
+    :root {
+      --background: #0b0c10;
+      --foreground: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.62);
+      --cardShadow: 0 18px 55px rgba(0,0,0,0.45);
+      --cardBorder: rgba(255,255,255,0.10);
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      overflow: hidden; /* 스크롤바 대신 애니메이션으로 흐르게 */
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    #viewport {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 안내/컨트롤 UI */
+    #hud {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 50;
+      pointer-events: none; /* 배경 터치가 되게 */
+    }
+
+    #hint {
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.35;
+      color: var(--muted);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.10);
+      padding: 10px 12px;
+      border-radius: 14px;
+      backdrop-filter: blur(10px);
+      max-width: 70ch;
+    }
+
+    #controls {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto; /* 버튼은 눌러야 하니까 */
+      align-items: center;
+    }
+
+    .controlButton {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: var(--foreground);
+      padding: 9px 11px;
+      border-radius: 12px;
+      font-size: 12px;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: transform 120ms ease, background 120ms ease, border 120ms ease;
+    }
+    .controlButton:hover {
+      background: rgba(255,255,255,0.09);
+      border-color: rgba(255,255,255,0.18);
+      transform: translateY(-1px);
+    }
+    .controlButton:active {
+      transform: translateY(0px);
+    }
+
+    /* 메모 레이어 */
+    #noteLayer {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+    }
+
+    .note {
+      position: absolute;
+      width: 220px;
+      min-height: 130px;
+      padding: 14px 14px 12px 14px;
+      border-radius: 18px;
+      box-shadow: var(--cardShadow);
+      border: 1px solid var(--cardBorder);
+      overflow: hidden;
+      transform-origin: center;
+      cursor: default;
+      user-select: none;
+    }
+
+    /* 종이 질감 느낌(아주 약하게) */
+    .note::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(120px 90px at 18% 22%, rgba(255,255,255,0.16), transparent 60%),
+        radial-gradient(220px 160px at 85% 70%, rgba(0,0,0,0.18), transparent 70%);
+      opacity: 0.55;
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+    }
+
+    .noteTitle {
+      font-size: 12px;
+      letter-spacing: 0.2px;
+      opacity: 0.80;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .noteTitleActions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .noteActionButton {
+      appearance: none;
+      border: 1px solid rgba(15,16,20,0.15);
+      background: rgba(255,255,255,0.55);
+      color: rgba(15,16,20,0.78);
+      padding: 2px 6px;
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+
+    .noteActionButton.danger {
+      border-color: rgba(180,60,60,0.30);
+      background: rgba(255,180,180,0.55);
+      color: rgba(110,20,20,0.9);
+    }
+
+    .noteBody {
+      font-size: 14px;
+      line-height: 1.35;
+      color: rgba(15, 16, 20, 0.92); /* 메모 위 텍스트는 어둡게 */
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 72px;
+      user-select: text; /* 내용은 복사 가능 */
+    }
+
+    .noteTimestamp {
+      font-size: 11px;
+      color: rgba(15,16,20,0.60);
+      opacity: 0.95;
+      margin-top: 10px;
+    }
+
+    /* 편집 모달 */
+    #editorOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 18px;
+    }
+
+    #editorPanel {
+      width: min(640px, 100%);
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 18px;
+      backdrop-filter: blur(14px);
+      padding: 14px;
+      box-shadow: 0 30px 90px rgba(0,0,0,0.55);
+    }
+
+    #editorHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      color: rgba(255,255,255,0.90);
+      font-size: 13px;
+    }
+
+    #editorTextarea {
+      width: 100%;
+      height: 220px;
+      resize: vertical;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(0,0,0,0.25);
+      color: rgba(255,255,255,0.92);
+      padding: 12px;
+      outline: none;
+      font-size: 14px;
+      line-height: 1.45;
+      box-sizing: border-box;
+    }
+
+    #editorActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .editorButton {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.92);
+      padding: 9px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .editorButton.danger {
+      border-color: rgba(255,120,120,0.32);
+      background: rgba(255,80,80,0.10);
+    }
+
+    /* 모바일 길게 누르기 안내용 */
+    @media (max-width: 520px) {
+      .note { width: 200px; }
+      #hint { max-width: 52ch; }
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <div id="hud">
+      <div id="hint">
+        화면을 터치/클릭하면 그 위치 색으로 메모가 생성됩니다.<br>
+        메모 더블클릭(모바일: 길게 누르기)으로 편집. 흐름은 무한 루프입니다.
+      </div>
+      <div id="controls">
+        <button id="toggleMotionButton" class="controlButton">흐름: ON</button>
+        <button id="toggleDirectionButton" class="controlButton">방향: ↑</button>
+        <button id="clearButton" class="controlButton">전체 삭제</button>
+      </div>
+    </div>
+
+    <div id="noteLayer"></div>
+
+    <div id="editorOverlay" role="dialog" aria-modal="true">
+      <div id="editorPanel">
+        <div id="editorHeader">
+          <div id="editorTitle">메모 편집</div>
+          <div style="opacity:0.7;font-size:12px;">Esc로 닫기</div>
+        </div>
+        <textarea id="editorTextarea" placeholder="메모 내용을 입력하세요"></textarea>
+        <div id="editorActions">
+          <button id="deleteNoteButton" class="editorButton danger">삭제</button>
+          <button id="cancelEditButton" class="editorButton">취소</button>
+          <button id="saveEditButton" class="editorButton">저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * 구현 전략
+     * - 실제 스크롤을 쓰지 않고, "월드 좌표"를 가진 메모들을 requestAnimationFrame으로 이동시킵니다.
+     * - y 오프셋(ScrollOffsetY)을 계속 증가/감소시키고, 화면 밖으로 나가면 worldHeight로 wrap 합니다.
+     * - 클릭 위치 (viewportX, viewportY) 를 worldY로 변환해 저장: worldY = (viewportY + scrollOffsetY) % worldHeight
+     * - 색은 (viewportX, viewportY) 기반의 연속 색장(OKLCH -> sRGB)으로 계산합니다.
+     */
+
+    const viewportElement = document.getElementById("viewport");
+    const noteLayerElement = document.getElementById("noteLayer");
+
+    const toggleMotionButton = document.getElementById("toggleMotionButton");
+    const toggleDirectionButton = document.getElementById("toggleDirectionButton");
+    const clearButton = document.getElementById("clearButton");
+
+    const editorOverlay = document.getElementById("editorOverlay");
+    const editorTextarea = document.getElementById("editorTextarea");
+    const cancelEditButton = document.getElementById("cancelEditButton");
+    const saveEditButton = document.getElementById("saveEditButton");
+    const deleteNoteButton = document.getElementById("deleteNoteButton");
+
+    const localStorageKey = "infiniteMemoFlow.notes.v1";
+
+    const worldHeightPixels = 3200;   // 무한 루프를 위한 가상 월드 높이
+    const worldPaddingPixels = 40;
+
+    let isMotionEnabled = true;
+    let scrollDirection = -1; // -1: 위로(컨텐츠가 올라감), +1: 아래로
+    let scrollSpeedPixelsPerSecond = 14; // 매우 천천히
+
+    let scrollOffsetY = 0;
+    let lastAnimationTimestamp = performance.now();
+
+    /** @type {Array<{
+     *   id: string,
+     *   worldX: number,
+     *   worldY: number,
+     *   rotationDegrees: number,
+     *   backgroundColorCss: string,
+     *   text: string,
+     *   createdAtIso: string
+     * }>} */
+    let notes = [];
+
+    /** 편집 상태 */
+    let currentlyEditingNoteId = null;
+    let longPressTimerId = null;
+
+    function generateId() {
+      return "note_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+    }
+
+    function clampNumber(value, minimum, maximum) {
+      return Math.min(Math.max(value, minimum), maximum);
+    }
+
+    function wrapNumber(value, modulo) {
+      const wrapped = value % modulo;
+      return wrapped < 0 ? wrapped + modulo : wrapped;
+    }
+
+    function formatTimestamp(isoString) {
+      const date = new Date(isoString);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${year}.${month}.${day} ${hours}:${minutes}`;
+    }
+
+    /**
+     * 부드러운(연속) 변화를 만드는 작은 주기 함수들로 "유기적인" 컬러 필드를 만듭니다.
+     * - 멀리서 보면 대략 그라데이션, 가까이서는 미묘한 물결감.
+     */
+    function smoothFieldNoise(normalizedX, normalizedY) {
+      const tau = Math.PI * 2;
+      const wave1 = Math.sin(tau * (normalizedX * 2.35 + normalizedY * 1.55));
+      const wave2 = Math.sin(tau * (normalizedX * 1.10 - normalizedY * 2.10));
+      const wave3 = Math.sin(tau * (normalizedX * 0.55 + normalizedY * 0.85));
+      return (0.55 * wave1 + 0.30 * wave2 + 0.15 * wave3);
+    }
+
+    /**
+     * OKLCH -> sRGB 변환
+     * - OKLCH는 사람이 보는 "부드러움"이 상대적으로 좋아서 그라데이션이 예쁘게 나옵니다.
+     * - lightness: 0..1, chroma: 대략 0..0.2, hueDegrees: 0..360
+     */
+    function oklchToSrgbCss(lightness, chroma, hueDegrees) {
+      const hueRadians = (hueDegrees * Math.PI) / 180;
+      const a = chroma * Math.cos(hueRadians);
+      const b = chroma * Math.sin(hueRadians);
+
+      // OKLab -> LMS (nonlinear)
+      const l_ = lightness + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = lightness - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = lightness - 0.0894841775 * a - 1.2914855480 * b;
+
+      const l = l_ * l_ * l_;
+      const m = m_ * m_ * m_;
+      const s = s_ * s_ * s_;
+
+      // LMS -> linear sRGB
+      const linearRed   = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+      const linearGreen = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+      const linearBlue  = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+      function linearToSrgb(channel) {
+        const clamped = clampNumber(channel, 0, 1);
+        if (clamped <= 0.0031308) return 12.92 * clamped;
+        return 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+      }
+
+      const red = Math.round(255 * linearToSrgb(linearRed));
+      const green = Math.round(255 * linearToSrgb(linearGreen));
+      const blue = Math.round(255 * linearToSrgb(linearBlue));
+
+      return `rgb(${red} ${green} ${blue})`;
+    }
+
+    /**
+     * 클릭/터치 위치에 따른 "아름다운" 단색 생성
+     * - x는 hue(색상) 중심, y는 lightness(명도) 중심으로 설계
+     * - noise로 아주 약한 유기적 변화
+     */
+    function colorFromViewportPosition(viewportX, viewportY) {
+      const viewportWidth = viewportElement.clientWidth;
+      const viewportHeight = viewportElement.clientHeight;
+
+      const normalizedX = clampNumber(viewportX / Math.max(viewportWidth, 1), 0, 1);
+      const normalizedY = clampNumber(viewportY / Math.max(viewportHeight, 1), 0, 1);
+
+      const noise = smoothFieldNoise(normalizedX, normalizedY);
+
+      // hue: 좌->우로 흐르되, y에 따라 대각선 느낌으로 조금 틀어줌
+      const baseHueDegrees = 210 + 150 * normalizedX + 55 * (normalizedY - 0.5);
+      const hueDegrees = wrapNumber(baseHueDegrees + 10 * noise, 360);
+
+      // lightness: 위쪽은 밝고 아래로 갈수록 살짝 어두워지게
+      const lightness = clampNumber(0.86 - 0.30 * normalizedY + 0.03 * noise, 0.58, 0.92);
+
+      // chroma: 중앙부가 조금 더 선명
+      const distanceFromCenterY = Math.abs(normalizedY - 0.5) * 2; // 0..1
+      const chroma = clampNumber(0.14 - 0.05 * distanceFromCenterY + 0.01 * noise, 0.06, 0.18);
+
+      return oklchToSrgbCss(lightness, chroma, hueDegrees);
+    }
+
+    function saveNotesToLocalStorage() {
+      try {
+        localStorage.setItem(localStorageKey, JSON.stringify(notes));
+      } catch (error) {
+        // 저장 불가 환경(사파리 프라이빗 등)에서는 조용히 무시
+      }
+    }
+
+    function loadNotesFromLocalStorage() {
+      try {
+        const raw = localStorage.getItem(localStorageKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        notes = parsed;
+      } catch (error) {
+        // 무시
+      }
+    }
+
+    function clearAllNotes() {
+      notes = [];
+      saveNotesToLocalStorage();
+      renderAllNotes();
+    }
+
+    function deleteNoteById(noteId) {
+      notes = notes.filter((note) => note.id !== noteId);
+      saveNotesToLocalStorage();
+      renderAllNotes();
+    }
+
+    function createNoteElement(note) {
+      const noteElement = document.createElement("div");
+      noteElement.className = "note";
+      noteElement.dataset.noteId = note.id;
+      noteElement.style.background = note.backgroundColorCss;
+      noteElement.style.transform = `rotate(${note.rotationDegrees}deg)`;
+
+      const noteTitleElement = document.createElement("div");
+      noteTitleElement.className = "noteTitle";
+
+      const titleLeft = document.createElement("div");
+      titleLeft.textContent = "MEMO";
+
+      const titleRight = document.createElement("div");
+      titleRight.className = "noteTitleActions";
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "noteActionButton";
+      editButton.textContent = "편집";
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "noteActionButton danger";
+      deleteButton.textContent = "삭제";
+
+      titleRight.appendChild(editButton);
+      titleRight.appendChild(deleteButton);
+
+      noteTitleElement.appendChild(titleLeft);
+      noteTitleElement.appendChild(titleRight);
+
+      const noteBodyElement = document.createElement("div");
+      noteBodyElement.className = "noteBody";
+      noteBodyElement.textContent = note.text || "새 메모";
+
+      const noteTimestampElement = document.createElement("div");
+      noteTimestampElement.className = "noteTimestamp";
+      noteTimestampElement.textContent = formatTimestamp(note.createdAtIso);
+
+      noteElement.appendChild(noteTitleElement);
+      noteElement.appendChild(noteBodyElement);
+      noteElement.appendChild(noteTimestampElement);
+
+      editButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openEditor(note.id);
+      });
+
+      deleteButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteNoteById(note.id);
+      });
+
+      // 더블클릭 편집
+      noteElement.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        openEditor(note.id);
+      });
+
+      // 모바일: 길게 누르기 편집
+      noteElement.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse") return;
+        longPressTimerId = window.setTimeout(() => {
+          openEditor(note.id);
+        }, 520);
+      });
+      noteElement.addEventListener("pointerup", () => {
+        if (longPressTimerId) window.clearTimeout(longPressTimerId);
+        longPressTimerId = null;
+      });
+      noteElement.addEventListener("pointercancel", () => {
+        if (longPressTimerId) window.clearTimeout(longPressTimerId);
+        longPressTimerId = null;
+      });
+
+      return noteElement;
+    }
+
+    function renderAllNotes() {
+      noteLayerElement.innerHTML = "";
+      for (const note of notes) {
+        const noteElement = createNoteElement(note);
+        noteLayerElement.appendChild(noteElement);
+      }
+    }
+
+    function findNoteById(noteId) {
+      return notes.find((note) => note.id === noteId) || null;
+    }
+
+    function openEditor(noteId) {
+      const note = findNoteById(noteId);
+      if (!note) return;
+
+      currentlyEditingNoteId = noteId;
+      editorTextarea.value = note.text || "";
+      editorOverlay.style.display = "flex";
+      editorTextarea.focus();
+      editorTextarea.setSelectionRange(editorTextarea.value.length, editorTextarea.value.length);
+    }
+
+    function closeEditor() {
+      currentlyEditingNoteId = null;
+      editorOverlay.style.display = "none";
+      editorTextarea.value = "";
+    }
+
+    function saveEditorChanges() {
+      if (!currentlyEditingNoteId) return;
+      const note = findNoteById(currentlyEditingNoteId);
+      if (!note) return;
+
+      note.text = editorTextarea.value.trim() ? editorTextarea.value : "새 메모";
+      saveNotesToLocalStorage();
+      renderAllNotes();
+      closeEditor();
+    }
+
+    function deleteCurrentlyEditingNote() {
+      if (!currentlyEditingNoteId) return;
+      deleteNoteById(currentlyEditingNoteId);
+      closeEditor();
+    }
+
+    function addNoteAtViewportPosition(viewportX, viewportY) {
+      const viewportWidth = viewportElement.clientWidth;
+      const viewportHeight = viewportElement.clientHeight;
+
+      const backgroundColorCss = colorFromViewportPosition(viewportX, viewportY);
+
+      // 클릭한 화면 좌표를 월드 좌표로 변환(현재 scrollOffsetY를 고려)
+      const worldX = clampNumber(viewportX, worldPaddingPixels, Math.max(worldPaddingPixels, viewportWidth - worldPaddingPixels - 220));
+      const worldY = wrapNumber(viewportY + scrollOffsetY, worldHeightPixels);
+
+      const rotationDegrees = (Math.random() * 6) - 3; // -3..+3
+
+      const newNote = {
+        id: generateId(),
+        worldX,
+        worldY,
+        rotationDegrees,
+        backgroundColorCss,
+        text: "새 메모",
+        createdAtIso: new Date().toISOString()
+      };
+
+      notes.push(newNote);
+      saveNotesToLocalStorage();
+
+      const noteElement = createNoteElement(newNote);
+      noteLayerElement.appendChild(noteElement);
+
+      // 생성 직후 바로 편집 열기(원치 않으면 아래 2줄을 주석 처리)
+      openEditor(newNote.id);
+    }
+
+    function isClickOnExistingNote(targetElement) {
+      return Boolean(targetElement.closest && targetElement.closest(".note"));
+    }
+
+    function updateNoteElementPositions() {
+      const viewportHeight = viewportElement.clientHeight;
+
+      for (const noteElement of noteLayerElement.children) {
+        const noteId = noteElement.dataset.noteId;
+        const note = findNoteById(noteId);
+        if (!note) continue;
+
+        // 월드 좌표 -> 화면 좌표 변환 (wrap)
+        let displayY = note.worldY - scrollOffsetY;
+
+        // wrap: 화면 밖 아래로 크게 내려가면 위로 당김, 위로 올라가면 아래로 당김
+        // 노트 높이를 대략 160px로 잡아 여유를 둠
+        const approximateNoteHeight = 170;
+
+        while (displayY < -approximateNoteHeight) displayY += worldHeightPixels;
+        while (displayY > viewportHeight + approximateNoteHeight) displayY -= worldHeightPixels;
+
+        noteElement.style.left = `${note.worldX}px`;
+        noteElement.style.top = `${displayY}px`;
+      }
+    }
+
+    function animationLoop(timestamp) {
+      const deltaMilliseconds = timestamp - lastAnimationTimestamp;
+      lastAnimationTimestamp = timestamp;
+
+      if (isMotionEnabled) {
+        const deltaSeconds = deltaMilliseconds / 1000;
+        scrollOffsetY = wrapNumber(
+          scrollOffsetY + (scrollDirection * scrollSpeedPixelsPerSecond * deltaSeconds),
+          worldHeightPixels
+        );
+      }
+
+      updateNoteElementPositions();
+      requestAnimationFrame(animationLoop);
+    }
+
+    // 이벤트: 배경 터치/클릭으로 메모 추가
+    viewportElement.addEventListener("pointerdown", (event) => {
+      if (editorOverlay.style.display === "flex") return;
+      // 버튼이나 노트 위면 무시
+      if (event.target.closest("#controls")) return;
+      if (isClickOnExistingNote(event.target)) return;
+
+      const rect = viewportElement.getBoundingClientRect();
+      const viewportX = event.clientX - rect.left;
+      const viewportY = event.clientY - rect.top;
+
+      addNoteAtViewportPosition(viewportX, viewportY);
+    });
+
+    // 컨트롤
+    toggleMotionButton.addEventListener("click", () => {
+      isMotionEnabled = !isMotionEnabled;
+      toggleMotionButton.textContent = `흐름: ${isMotionEnabled ? "ON" : "OFF"}`;
+    });
+
+    toggleDirectionButton.addEventListener("click", () => {
+      scrollDirection *= -1;
+      toggleDirectionButton.textContent = `방향: ${scrollDirection < 0 ? "↑" : "↓"}`;
+    });
+
+    clearButton.addEventListener("click", () => {
+      clearAllNotes();
+    });
+
+    // 에디터 버튼
+    cancelEditButton.addEventListener("click", closeEditor);
+    saveEditButton.addEventListener("click", saveEditorChanges);
+    deleteNoteButton.addEventListener("click", deleteCurrentlyEditingNote);
+
+    // ESC로 에디터 닫기
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && editorOverlay.style.display === "flex") {
+        closeEditor();
+      }
+    });
+
+    // 초기 로드
+    loadNotesFromLocalStorage();
+    renderAllNotes();
+    updateNoteElementPositions();
+    requestAnimationFrame(animationLoop);
+
+    // 리사이즈 대응(가로폭 바뀌면 note.worldX가 화면 밖일 수 있어 간단히 클램프)
+    window.addEventListener("resize", () => {
+      const viewportWidth = viewportElement.clientWidth;
+      for (const note of notes) {
+        note.worldX = clampNumber(note.worldX, worldPaddingPixels, Math.max(worldPaddingPixels, viewportWidth - worldPaddingPixels - 220));
+      }
+      saveNotesToLocalStorage();
+      updateNoteElementPositions();
+    });
+  </script>
+</body>
+</html>
